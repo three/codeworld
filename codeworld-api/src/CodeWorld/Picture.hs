@@ -19,6 +19,7 @@ module CodeWorld.Picture where
 import CodeWorld.Color
 import Data.Monoid ((<>))
 import Data.Text (Text, pack)
+import GHC.Stack
 
 type Point = (Double, Double)
 type Vector = (Double, Double)
@@ -40,126 +41,129 @@ rotatedVector angle (x,y) = (x * cos angle - y * sin angle,
 dotProduct :: Vector -> Vector -> Double
 dotProduct (x1, y1) (x2, y2) = x1 * x2 + y1 * y2
 
-data Picture = Polygon [Point] !Bool
-             | Path [Point] !Double !Bool !Bool
-             | Sector !Double !Double !Double
-             | Arc !Double !Double !Double !Double
-             | Text !TextStyle !Font !Text
+data Picture = Polygon SrcLoc [Point] !Bool
+             | Path SrcLoc [Point] !Double !Bool !Bool
+             | Sector SrcLoc !Double !Double !Double
+             | Arc SrcLoc !Double !Double !Double !Double
+             | Text SrcLoc !TextStyle !Font !Text
              | Color !Color !Picture
              | Translate !Double !Double !Picture
              | Scale !Double !Double !Picture
              | Rotate !Double !Picture
              | Pictures [Picture]
-             | Logo
+             | Logo SrcLoc
 
 data TextStyle = Plain | Bold | Italic
 
 data Font = SansSerif | Serif | Monospace | Handwriting | Fancy | NamedFont !Text
+
+callStackToSrc :: CallStack -> SrcLoc
+callStackToSrc = snd . head . getCallStack
 
 -- | A blank picture
 blank :: Picture
 blank = Pictures []
 
 -- | A thin sequence of line segments, with these points as endpoints
-path :: [Point] -> Picture
-path ps = Path ps 0 False False
+path :: HasCallStack => [Point] -> Picture
+path ps = Path  (callStackToSrc callStack) ps 0 False False
 
 -- | A thick sequence of line segments, with given line width and endpoints
-thickPath :: Double -> [Point] -> Picture
-thickPath n ps = Path ps n False False
+thickPath :: HasCallStack => Double -> [Point] -> Picture
+thickPath n ps = Path (callStackToSrc callStack) ps n False False
 
 -- | A thin polygon with these points as vertices
-polygon :: [Point] -> Picture
-polygon ps = Path ps 0 True False
+polygon :: HasCallStack => [Point] -> Picture
+polygon ps = Path (callStackToSrc callStack) ps 0 True False
 
 -- | A thick polygon with this line width and these points as
 -- vertices
-thickPolygon :: Double -> [Point] -> Picture
-thickPolygon n ps = Path ps n True False
+thickPolygon :: HasCallStack => Double -> [Point] -> Picture
+thickPolygon n ps = Path (callStackToSrc callStack) ps n True False
 
 -- | A solid polygon with these points as vertices
-solidPolygon :: [Point] -> Picture
-solidPolygon ps = Polygon ps False
+solidPolygon :: HasCallStack => [Point] -> Picture
+solidPolygon ps = Polygon (callStackToSrc callStack) ps False
 
 -- | A smooth curve passing through these points.
-curve :: [Point] -> Picture
-curve ps = Path ps 0 False True
+curve :: HasCallStack => [Point] -> Picture
+curve ps = Path (callStackToSrc callStack) ps 0 False True
 
 -- | A thick smooth curve with this line width, passing through these points.
-thickCurve :: Double -> [Point] -> Picture
-thickCurve n ps = Path ps n False True
+thickCurve :: HasCallStack => Double -> [Point] -> Picture
+thickCurve n ps = Path (callStackToSrc callStack) ps n False True
 
 -- | A smooth closed loop passing through these points.
-loop :: [Point] -> Picture
-loop ps = Path ps 0 True True
+loop :: HasCallStack => [Point] -> Picture
+loop ps = Path (callStackToSrc callStack) ps 0 True True
 
 -- | A thick smooth closed loop with this line width, passing through these points.
-thickLoop :: Double -> [Point] -> Picture
-thickLoop n ps = Path ps n True True
+thickLoop :: HasCallStack => Double -> [Point] -> Picture
+thickLoop n ps = Path (callStackToSrc callStack) ps n True True
 
 -- | A solid smooth closed loop passing through these points.
-solidLoop :: [Point] -> Picture
-solidLoop ps = Polygon ps True
+solidLoop :: HasCallStack => [Point] -> Picture
+solidLoop ps = Polygon (callStackToSrc callStack) ps True
 
 -- | A thin rectangle, with this width and height
-rectangle :: Double -> Double -> Picture
-rectangle w h = polygon [
+rectangle :: HasCallStack => Double -> Double -> Picture
+rectangle w h = withFrozenCallStack $ polygon [
     (-w/2, -h/2), (w/2, -h/2), (w/2, h/2), (-w/2, h/2)
     ]
 
 -- | A solid rectangle, with this width and height
-solidRectangle :: Double -> Double -> Picture
-solidRectangle w h = solidPolygon [
+solidRectangle :: HasCallStack => Double -> Double -> Picture
+solidRectangle w h = withFrozenCallStack $ solidPolygon [
     (-w/2, -h/2), (w/2, -h/2), (w/2, h/2), (-w/2, h/2)
     ]
 
 -- | A thick rectangle, with this line width, and width and height
-thickRectangle :: Double -> Double -> Double -> Picture
-thickRectangle lw w h = thickPolygon lw [
+thickRectangle :: HasCallStack => Double -> Double -> Double -> Picture
+thickRectangle lw w h = withFrozenCallStack $ thickPolygon lw [
     (-w/2, -h/2), (w/2, -h/2), (w/2, h/2), (-w/2, h/2)
     ]
 
 -- | A thin circle, with this radius
-circle :: Double -> Picture
-circle = arc 0 (2*pi)
+circle :: HasCallStack => Double -> Picture
+circle = withFrozenCallStack $ arc 0 (2*pi)
 
 -- | A thick circle, with this line width and radius
-thickCircle :: Double -> Double -> Picture
-thickCircle w = thickArc w 0 (2*pi)
+thickCircle :: HasCallStack => Double -> Double -> Picture
+thickCircle w = withFrozenCallStack $ thickArc w 0 (2*pi)
 
 -- | A thin arc, starting and ending at these angles, with this radius
 --
 -- Angles are in radians.
-arc :: Double -> Double -> Double -> Picture
-arc b e r = Arc b e r 0
+arc :: HasCallStack => Double -> Double -> Double -> Picture
+arc b e r = Arc (callStackToSrc callStack) b e r 0
 
 -- | A thick arc with this line width, starting and ending at these angles,
 -- with this radius.
 --
 -- Angles are in radians.
-thickArc :: Double -> Double -> Double -> Double -> Picture
-thickArc w b e r = Arc b e r w
+thickArc :: HasCallStack => Double -> Double -> Double -> Double -> Picture
+thickArc w b e r = Arc (callStackToSrc callStack) b e r w
 
 -- | A solid circle, with this radius
-solidCircle :: Double -> Picture
-solidCircle = sector 0 (2*pi)
+solidCircle :: HasCallStack => Double -> Picture
+solidCircle = withFrozenCallStack $ sector 0 (2*pi)
 
 -- | A solid sector of a circle (i.e., a pie slice) starting and ending at these
 -- angles, with this radius
 --
 -- Angles are in radians.
-sector :: Double -> Double -> Double -> Picture
-sector = Sector
+sector :: HasCallStack => Double -> Double -> Double -> Picture
+sector = Sector (callStackToSrc callStack)
 
 -- | A piece of text
-text :: Text -> Picture
-text = Text Plain Serif
+text :: HasCallStack => Text -> Picture
+text = Text (callStackToSrc callStack) Plain Serif
 
-styledText :: TextStyle -> Font -> Text -> Picture
-styledText = Text
+styledText :: HasCallStack => TextStyle -> Font -> Text -> Picture
+styledText = Text (callStackToSrc callStack)
 
 -- | A picture drawn entirely in this color.
-colored :: Color -> Picture -> Picture
+colored :: HasCallStack => Color -> Picture -> Picture
 colored = Color
 
 -- | A picture drawn entirely in this colour.
@@ -222,5 +226,5 @@ coordinatePlane = axes <> numbers <> guidelines
               | k <- [-9, -8 .. 9], k /= 0 ]
 
 -- | The CodeWorld logo.
-codeWorldLogo :: Picture
-codeWorldLogo = Logo
+codeWorldLogo :: HasCallStack => Picture
+codeWorldLogo = Logo (callStackToSrc callStack)

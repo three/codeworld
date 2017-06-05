@@ -337,26 +337,26 @@ fontString style font = stylePrefix style <> "25px " <> fontName font
         fontName (NamedFont txt) = "\"" <> textToJSString (T.filter (/= '"') txt) <> "\""
 
 drawPicture :: Canvas.Context -> DrawState -> Picture -> IO ()
-drawPicture ctx ds (Polygon ps smooth) = do
+drawPicture ctx ds (Polygon _ ps smooth) = do
     withDS ctx ds $ followPath ctx ps True smooth
     applyColor ctx ds
     Canvas.fill ctx
-drawPicture ctx ds (Path ps w closed smooth) = do
+drawPicture ctx ds (Path _ ps w closed smooth) = do
     drawFigure ctx ds w $ followPath ctx ps closed smooth
-drawPicture ctx ds (Sector b e r) = withDS ctx ds $ do
+drawPicture ctx ds (Sector _ b e r) = withDS ctx ds $ do
     Canvas.arc 0 0 (25 * abs r) b e (b > e) ctx
     Canvas.lineTo 0 0 ctx
     applyColor ctx ds
     Canvas.fill ctx
-drawPicture ctx ds (Arc b e r w) = do
+drawPicture ctx ds (Arc _ b e r w) = do
     drawFigure ctx ds w $ do
         Canvas.arc 0 0 (25 * abs r) b e (b > e) ctx
-drawPicture ctx ds (Text sty fnt txt) = withDS ctx ds $ do
+drawPicture ctx ds (Text _ sty fnt txt) = withDS ctx ds $ do
     Canvas.scale 1 (-1) ctx
     applyColor ctx ds
     Canvas.font (fontString sty fnt) ctx
     Canvas.fillText (textToJSString txt) 0 0 ctx
-drawPicture ctx ds Logo = withDS ctx ds $ do
+drawPicture ctx ds (Logo _) = withDS ctx ds $ do
     Canvas.scale 1 (-1) ctx
     drawCodeWorldLogo ctx ds (-225) (-50) 450 100
 drawPicture ctx ds (Color col p)     = drawPicture ctx (setColorDS col ds) p
@@ -515,26 +515,26 @@ fontString style font = stylePrefix style <> "25px " <> fontName font
         fontName (NamedFont txt) = "\"" <> T.filter (/= '"') txt <> "\""
 
 drawPicture :: DrawState -> Picture -> Canvas ()
-drawPicture ds (Polygon ps smooth) = do
+drawPicture ds (Polygon _ ps smooth) = do
     withDS ds $ followPath ps True smooth
     applyColor ds
     Canvas.fill ()
-drawPicture ds (Path ps w closed smooth) = do
+drawPicture ds (Path _ ps w closed smooth) = do
     drawFigure ds w $ followPath ps closed smooth
-drawPicture ds (Sector b e r) = withDS ds $ do
+drawPicture ds (Sector _ b e r) = withDS ds $ do
     Canvas.arc (0, 0, 25 * abs r, b, e,  b > e)
     Canvas.lineTo (0, 0)
     applyColor ds
     Canvas.fill ()
-drawPicture ds (Arc b e r w) = do
+drawPicture ds (Arc _ b e r w) = do
     drawFigure ds w $ do
         Canvas.arc (0, 0, 25 * abs r, b, e, b > e)
-drawPicture ds (Text sty fnt txt) = withDS ds $ do
+drawPicture ds (Text _ sty fnt txt) = withDS ds $ do
     Canvas.scale (1, -1)
     applyColor ds
     Canvas.font (fontString sty fnt)
     Canvas.fillText (txt, 0, 0)
-drawPicture ds Logo              = return () -- Unimplemented
+drawPicture ds (Logo _)          = return () -- Unimplemented
 drawPicture ds (Color col p)     = drawPicture (setColorDS col ds) p
 drawPicture ds (Translate x y p) = drawPicture (translateDS x y ds) p
 drawPicture ds (Scale x y p)     = drawPicture (scaleDS x y ds) p
