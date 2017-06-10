@@ -28,6 +28,7 @@ module Internal.CodeWorld (
     simulationOf,
     interactionOf,
     collaborationOf,
+    pictureContains,
     traced
     ) where
 
@@ -36,6 +37,7 @@ import                           Data.Text (Text)
 import                           Internal.Num (Number, fromDouble, toDouble, fromInt, toInt)
 import                           Internal.Prelude (randomsFrom)
 import                           Internal.Picture
+import                           Internal.Truth
 import                           Internal.Event
 import qualified                 Internal.Text as CWT
 import           "base"          Prelude
@@ -46,6 +48,9 @@ traced :: (a, CWT.Text) -> a
 traced (x, msg) = CW.trace (CWT.fromCWText msg) x
 
 type Program = IO ()
+
+pictureContains :: (Point,Picture) -> Truth
+pictureContains ((x,y),pic) = CW.pictureContainsPoint (toDouble x,toDouble y) $ toCWPic pic
 
 drawingOf :: Picture -> Program
 drawingOf pic = CW.drawingOf (toCWPic pic)

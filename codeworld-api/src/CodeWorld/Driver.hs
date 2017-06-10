@@ -37,6 +37,7 @@ module CodeWorld.Driver (
     interactionOf,
     collaborationOf,
     unsafeCollaborationOf,
+    pictureContainsPoint,
     trace
     ) where
 
@@ -256,6 +257,32 @@ drawCodeWorldLogo ctx ds x y w h = do
             js_canvasDrawImage bufctx canvas 0 0 w h
             js_canvasDrawImage ctx (elementFromCanvas buf) x y w h
 
+pictureContainsPoint :: Point -> Picture -> Bool
+pictureContainsPoint pt pic = unsafePerformIO $ containsPoint pt pic
+
+containsPoint :: Point -> Picture -> IO Bool
+containsPoint (x,y) = containsPointDS $ translateDS (-x) (-y) initialDS
+
+containsPointDS :: DrawState -> Picture -> IO Bool
+containsPointDS ds (Color _ p) = containsPointDS ds p
+containsPointDS ds (Translate x y p) = containsPointDS (translateDS x y ds) p
+containsPointDS ds (Scale x y p) = containsPointDS (scaleDS x y ds) p
+containsPointDS ds (Rotate r p) = containsPointDS (rotateDS r ds) p
+containsPointDS ds (Pictures []) = return False
+containsPointDS ds (Pictures (p:ps)) = do
+    contained <- containsPointDS ds p
+    if contained then return True else containsPointDS ds (Pictures ps)
+containsPointDS ds pic = do
+    offscreen <- Canvas.create 500 500
+    ctx <- Canvas.getContext offscreen
+    drawPicture ctx ds pic
+    js_isPointInPath 0 0 ctx
+
+-- Canvas.isPointInPath does not provide a way to get the return value
+-- https://github.com/ghcjs/ghcjs-base/blob/master/JavaScript/Web/Canvas.hs#L212
+foreign import javascript unsafe "$3.isPointInPath($1,$2)"
+    js_isPointInPath :: Double -> Double -> Canvas.Context -> IO Bool
+
 followPath :: Canvas.Context -> [Point] -> Bool -> Bool -> IO ()
 followPath ctx [] closed _ = return ()
 followPath ctx [p1] closed _ = return ()
@@ -432,6 +459,8 @@ applyColor ds = case getColorDS ds of
       Canvas.strokeStyle style
       Canvas.fillStyle   style
 
+pictureContainsPoint :: Point -> Picture -> Bool
+pictureContainsPoint _ _ = error "pictureContainsPoint not available outside GHCJS"
 
 drawFigure :: DrawState -> Double -> Canvas () -> Canvas ()
 drawFigure ds w figure = do
