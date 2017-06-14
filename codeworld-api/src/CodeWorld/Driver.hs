@@ -37,7 +37,7 @@ module CodeWorld.Driver (
     interactionOf,
     collaborationOf,
     unsafeCollaborationOf,
-    pictureContainsPoint,
+    debugMode,
     trace
     ) where
 
@@ -62,6 +62,7 @@ import qualified Data.Text as T
 import           Data.Text (Text, singleton, pack)
 import           GHC.Fingerprint.Type
 import           GHC.Generics
+import           GHC.Stack
 import           GHC.StaticPtr
 import           Numeric
 import           System.Environment
@@ -89,9 +90,11 @@ import           GHCJS.DOM.EventM
 import           GHCJS.DOM.MouseEvent
 import           GHCJS.DOM.Types (Element, unElement)
 import           GHCJS.Foreign
+import           GHCJS.Foreign.Callback
 import           GHCJS.Marshal
 import           GHCJS.Marshal.Pure
 import           GHCJS.Types
+import           JavaScript.Object
 import           JavaScript.Web.AnimationFrame
 import qualified JavaScript.Web.Canvas as Canvas
 import qualified JavaScript.Web.Canvas.Internal as Canvas
@@ -99,6 +102,7 @@ import qualified JavaScript.Web.Location as Loc
 import qualified JavaScript.Web.MessageEvent as WS
 import qualified JavaScript.Web.WebSocket as WS
 import           System.IO.Unsafe
+import           Unsafe.Coerce
 
 #else
 
@@ -257,8 +261,37 @@ drawCodeWorldLogo ctx ds x y w h = do
             js_canvasDrawImage bufctx canvas 0 0 w h
             js_canvasDrawImage ctx (elementFromCanvas buf) x y w h
 
-pictureContainsPoint :: Point -> Picture -> Bool
-pictureContainsPoint pt pic = unsafePerformIO $ containsPoint pt pic
+-- Debug Mode logic
+
+debugMode :: Picture -> IO ()
+debugMode pic = do
+    display pic `catch` reportErrorDebugMode
+    callback <- syncCallback2 ContinueAsync (handlePointRequest pic)
+    js_initDebugMode callback
+
+reportErrorDebugMode :: SomeException -> IO ()
+reportErrorDebugMode e = do
+    reportError e
+    js_haltDebugMode
+
+handlePointRequest :: Picture -> JSVal -> JSVal -> IO ()
+handlePointRequest pic argsJS retJS = do
+    x <- fmap pFromJSVal $ getProp "x" args
+    y <- fmap pFromJSVal $ getProp "y" args
+    text <- fmap (pToJSVal.show) $ stackFromPoint pic (x/25-10,10-y/25)
+    setProp "stack" text ret
+    where
+        -- https://github.com/ghcjs/ghcjs-base/issues/53
+        args = unsafeCoerce argsJS :: Object
+        ret  = unsafeCoerce retJS :: Object
+
+stackFromPoint :: Picture -> Point -> IO (Maybe SrcLoc)
+stackFromPoint pic@(Polygon src _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
+stackFromPoint pic@(Path src _ _ _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
+stackFromPoint pic@(Sector src _ _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
+stackFromPoint pic@(Arc src _ _ _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
+stackFromPoint pic@(Logo src) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
+stackFromPoint _ _ = return Nothing
 
 containsPoint :: Point -> Picture -> IO Bool
 containsPoint (x,y) = containsPointDS $ translateDS (-x) (-y) initialDS
@@ -282,6 +315,13 @@ containsPointDS ds pic = do
 -- https://github.com/ghcjs/ghcjs-base/blob/master/JavaScript/Web/Canvas.hs#L212
 foreign import javascript unsafe "$3.isPointInPath($1,$2)"
     js_isPointInPath :: Double -> Double -> Canvas.Context -> IO Bool
+
+foreign import javascript unsafe "initDebugMode($1)"
+    js_initDebugMode :: Callback (JSVal -> JSVal -> IO ()) -> IO ()
+
+foreign import javascript unsafe "haltDebugMode()"
+    js_haltDebugMode :: IO ()
+
 
 followPath :: Canvas.Context -> [Point] -> Bool -> Bool -> IO ()
 followPath ctx [] closed _ = return ()
@@ -459,9 +499,6 @@ applyColor ds = case getColorDS ds of
       Canvas.strokeStyle style
       Canvas.fillStyle   style
 
-pictureContainsPoint :: Point -> Picture -> Bool
-pictureContainsPoint _ _ = error "pictureContainsPoint not available outside GHCJS"
-
 drawFigure :: DrawState -> Double -> Canvas () -> Canvas ()
 drawFigure ds w figure = do
     withDS ds $ do
@@ -474,6 +511,9 @@ drawFigure ds w figure = do
         Canvas.lineWidth 1
         applyColor ds
         Canvas.stroke ()
+
+debugMode :: Picture -> IO ()
+debugMode _ = error "Debug mode is not available outside GHCJS"
 
 followPath :: [Point] -> Bool -> Bool -> Canvas ()
 followPath [] closed _ = return ()

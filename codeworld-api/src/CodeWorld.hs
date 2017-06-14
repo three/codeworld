@@ -67,7 +67,7 @@ module CodeWorld (
     scaledVector,
     rotatedVector,
     dotProduct,
-    pictureContainsPoint,
+    debugMode,
 
     -- * Colors
     Color(..),

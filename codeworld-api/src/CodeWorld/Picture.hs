@@ -58,7 +58,11 @@ data TextStyle = Plain | Bold | Italic
 data Font = SansSerif | Serif | Monospace | Handwriting | Fancy | NamedFont !Text
 
 callStackToSrc :: CallStack -> SrcLoc
-callStackToSrc = snd . head . getCallStack
+callStackToSrc = findMainSrc . getCallStack
+    where findMainSrc [] = error "Unable to find source"
+          findMainSrc ((_,src):xs)
+            | srcLocPackage src == "main" = src
+            | otherwise = findMainSrc xs
 
 -- | A blank picture
 blank :: Picture
