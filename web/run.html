@@ -19,31 +19,6 @@
     <img id="cwlogo" style="display: none" src="codeworld.png" width=900 height=200>
   </body>
   <script type="text/javascript">
-    /*
-     * Starts and halt debug mode
-     */
-    window.debugMode = false;
-    function initDebugMode(getStackAtPoint) {
-        var canvas = document.getElementById("screen");
-
-        canvas.addEventListener("click", function (evt) {
-            if (!debugMode) return;
-
-            var ret = {};
-            getStackAtPoint({
-                x: evt.clientX,
-                y: evt.clientY
-            }, ret);
-            reportRuntimeError(false, ret.stack);
-        });
-        debugMode = true;
-    }
-    function haltDebugMode() {
-        debugMode = false;
-    }
-  </script>
-
-  <script type="text/javascript">
     function reportRuntimeError(err, str) {
       if (window.parent.addToMessage) {
         var message = window.parent.addToMessage('\n' + str);
@@ -91,4 +66,6 @@
     script.setAttribute('src', uri);
     document.head.appendChild(script);
   </script>
+
+  <script type="text/javascript" src="js/debugmode.js"></script>
 </html>

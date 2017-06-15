@@ -278,12 +278,37 @@ handlePointRequest :: Picture -> JSVal -> JSVal -> IO ()
 handlePointRequest pic argsJS retJS = do
     x <- fmap pFromJSVal $ getProp "x" args
     y <- fmap pFromJSVal $ getProp "y" args
-    text <- fmap (pToJSVal.show) $ stackFromPoint pic (x/25-10,10-y/25)
-    setProp "stack" text ret
+    src <- stackFromPoint pic (x/25-10,10-y/25)
+    case src of
+        Just srcLoc -> do
+            srcObj <- srcToObj srcLoc
+            setProp "srcLoc" srcObj ret
+        Nothing -> do
+            setProp "srcLoc" nullRef ret
     where
         -- https://github.com/ghcjs/ghcjs-base/issues/53
         args = unsafeCoerce argsJS :: Object
         ret  = unsafeCoerce retJS :: Object
+
+srcToObj :: SrcLoc -> IO JSVal
+srcToObj src = do
+    obj <- create
+    setProp "package"   package   obj
+    setProp "module"    module'   obj
+    setProp "file"      file      obj
+    setProp "startLine" startLine obj
+    setProp "startCol"  startCol  obj
+    setProp "endLine"   endLine   obj
+    setProp "endCol"    endCol    obj
+    return $ unsafeCoerce obj
+    where
+        package   = pToJSVal $ srcLocPackage src
+        module'   = pToJSVal $ srcLocModule src
+        file      = pToJSVal $ srcLocFile src
+        startLine = pToJSVal $ srcLocStartLine src
+        startCol  = pToJSVal $ srcLocStartCol src
+        endLine   = pToJSVal $ srcLocEndLine src
+        endCol    = pToJSVal $ srcLocEndCol src
 
 stackFromPoint :: Picture -> Point -> IO (Maybe SrcLoc)
 stackFromPoint pic@(Polygon src _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
