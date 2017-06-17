@@ -310,6 +310,17 @@ srcToObj src = do
         endLine   = pToJSVal $ srcLocEndLine src
         endCol    = pToJSVal $ srcLocEndCol src
 
+flattenPicture :: Picture -> [(Picture,DrawState)]
+flattenPicture = flattenPictureDS initialDS
+
+flattenPictureDS :: DrawState -> Picture -> [(Picture,DrawState)]
+flattenPictureDS ds (Color col pic) = flattenPictureDS (setColorDS col ds) pic
+flattenPictureDS ds (Translate x y pic) = flattenPictureDS (translateDS x y ds) pic
+flattenPictureDS ds (Scale x y pic) = flattenPictureDS (scaleDS x y ds) pic
+flattenPictureDS ds (Rotate r pic) = flattenPictureDS (rotateDS r ds) pic
+flattenPictureDS ds (Pictures pics) = pics >>= flattenPictureDS ds
+flattenPictureDS ds pic = [(pic,ds)]
+
 stackFromPoint :: Picture -> Point -> IO (Maybe SrcLoc)
 stackFromPoint pic@(Polygon src _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
 stackFromPoint pic@(Path src _ _ _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
