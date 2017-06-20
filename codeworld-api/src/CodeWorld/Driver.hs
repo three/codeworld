@@ -183,6 +183,7 @@ rotateDS r (a,b,c,d,e,f,hc) =
      b * cos r + d * sin r,
      c * cos r - a * sin r,
      d * cos r - b * sin r,
+
      e, f, hc)
 
 setColorDS :: Color -> DrawState -> DrawState
@@ -278,9 +279,9 @@ handlePointRequest :: Picture -> JSVal -> JSVal -> IO ()
 handlePointRequest pic argsJS retJS = do
     x <- fmap pFromJSVal $ getProp "x" args
     y <- fmap pFromJSVal $ getProp "y" args
-    src <- stackFromPoint pic (x/25-10,10-y/25)
+    src <- findTopSrc pic (x/25-10,10-y/25)
     case src of
-        Just srcLoc -> do
+        Just (_,srcLoc) -> do
             srcObj <- srcToObj srcLoc
             setProp "srcLoc" srcObj ret
         Nothing -> do
@@ -310,38 +311,59 @@ srcToObj src = do
         endLine   = pToJSVal $ srcLocEndLine src
         endCol    = pToJSVal $ srcLocEndCol src
 
-flattenPicture :: Picture -> [(Picture,DrawState)]
-flattenPicture = flattenPictureDS initialDS
+findCSMain :: CallStack -> (String,SrcLoc)
+findCSMain = go . getCallStack
+    where go [] = Prelude.error "Unable to find source"
+          go ((name,src):xs)
+            | srcLocPackage src == "main" = (name,src)
+            | otherwise = go xs
 
-flattenPictureDS :: DrawState -> Picture -> [(Picture,DrawState)]
-flattenPictureDS ds (Color col pic) = flattenPictureDS (setColorDS col ds) pic
-flattenPictureDS ds (Translate x y pic) = flattenPictureDS (translateDS x y ds) pic
-flattenPictureDS ds (Scale x y pic) = flattenPictureDS (scaleDS x y ds) pic
-flattenPictureDS ds (Rotate r pic) = flattenPictureDS (rotateDS r ds) pic
-flattenPictureDS ds (Pictures pics) = pics >>= flattenPictureDS ds
-flattenPictureDS ds pic = [(pic,ds)]
+getPictureCS :: Picture -> CallStack
+getPictureCS (Polygon cs _ _)     = cs
+getPictureCS (Path cs _ _ _ _)    = cs
+getPictureCS (Sector cs _ _ _)    = cs
+getPictureCS (Arc cs _ _ _ _)     = cs
+getPictureCS (Text cs _ _ _)      = cs
+getPictureCS (Color cs _ _)       = cs
+getPictureCS (Translate cs _ _ _) = cs
+getPictureCS (Scale cs _ _ _)     = cs
+getPictureCS (Rotate cs _ _)      = cs
+getPictureCS (Pictures cs _)      = cs
 
-stackFromPoint :: Picture -> Point -> IO (Maybe SrcLoc)
-stackFromPoint pic@(Polygon src _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
-stackFromPoint pic@(Path src _ _ _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
-stackFromPoint pic@(Sector src _ _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
-stackFromPoint pic@(Arc src _ _ _ _) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
-stackFromPoint pic@(Logo src) pt = fmap (\c -> if c then Just src else Nothing) $ containsPoint pt pic
-stackFromPoint _ _ = return Nothing
+getPictureSrc :: Picture -> (String,SrcLoc)
+getPictureSrc = findCSMain . getPictureCS
 
-containsPoint :: Point -> Picture -> IO Bool
-containsPoint (x,y) = containsPointDS $ translateDS (-x) (-y) initialDS
+type PictureStack = [(Picture,DrawState)]
 
-containsPointDS :: DrawState -> Picture -> IO Bool
-containsPointDS ds (Color _ p) = containsPointDS ds p
-containsPointDS ds (Translate x y p) = containsPointDS (translateDS x y ds) p
-containsPointDS ds (Scale x y p) = containsPointDS (scaleDS x y ds) p
-containsPointDS ds (Rotate r p) = containsPointDS (rotateDS r ds) p
-containsPointDS ds (Pictures []) = return False
-containsPointDS ds (Pictures (p:ps)) = do
-    contained <- containsPointDS ds p
-    if contained then return True else containsPointDS ds (Pictures ps)
-containsPointDS ds pic = do
+flattenPicture :: DrawState -> Picture -> [PictureStack]
+flattenPicture ds p@(Color _ col pic)     = map ((p,ds):) $ flattenPicture (setColorDS col ds) pic
+flattenPicture ds p@(Color _ col pic)     = map ((p,ds):) $ flattenPicture (setColorDS col ds) pic
+flattenPicture ds p@(Translate _ x y pic) = map ((p,ds):) $ flattenPicture (translateDS x y ds) pic
+flattenPicture ds p@(Scale _ x y pic)     = map ((p,ds):) $ flattenPicture (scaleDS x y ds) pic
+flattenPicture ds p@(Rotate _ r pic)      = map ((p,ds):) $ flattenPicture (rotateDS r ds) pic
+flattenPicture ds p@(Pictures _ pics)     = map ((p,ds):) $ pics >>= flattenPicture ds
+flattenPicture ds p = [[(p,ds)]]
+
+findTopSrc :: Picture -> Point -> IO (Maybe (String,SrcLoc))
+findTopSrc pic (x,y) = go $ flattenPicture (translateDS (-x) (-y) initialDS) pic
+    where
+        go [] = return Nothing
+        go (x:xs) = do
+            contained <- containsPoint (snd (last x)) (fst (last x))
+            if contained
+                then return $ Just $ getPictureSrc (fst (last x))
+                else go xs
+
+containsPoint :: DrawState -> Picture -> IO Bool
+containsPoint ds (Color _ _ p) = containsPoint ds p
+containsPoint ds (Translate _ x y p) = containsPoint (translateDS x y ds) p
+containsPoint ds (Scale _ x y p) = containsPoint (scaleDS x y ds) p
+containsPoint ds (Rotate _ r p) = containsPoint (rotateDS r ds) p
+containsPoint ds (Pictures _ []) = return False
+containsPoint ds (Pictures _ (p:ps)) = do
+    contained <- containsPoint ds p
+    if contained then return True else containsPoint ds (Pictures emptyCallStack ps)
+containsPoint ds pic = do
     offscreen <- Canvas.create 500 500
     ctx <- Canvas.getContext offscreen
     drawPicture ctx ds pic
@@ -462,11 +484,11 @@ drawPicture ctx ds (Text _ sty fnt txt) = withDS ctx ds $ do
 drawPicture ctx ds (Logo _) = withDS ctx ds $ do
     Canvas.scale 1 (-1) ctx
     drawCodeWorldLogo ctx ds (-225) (-50) 450 100
-drawPicture ctx ds (Color col p)     = drawPicture ctx (setColorDS col ds) p
-drawPicture ctx ds (Translate x y p) = drawPicture ctx (translateDS x y ds) p
-drawPicture ctx ds (Scale x y p)     = drawPicture ctx (scaleDS x y ds) p
-drawPicture ctx ds (Rotate r p)      = drawPicture ctx (rotateDS r ds) p
-drawPicture ctx ds (Pictures ps)     = mapM_ (drawPicture ctx ds) (reverse ps)
+drawPicture ctx ds (Color _ col p)     = drawPicture ctx (setColorDS col ds) p
+drawPicture ctx ds (Translate _ x y p) = drawPicture ctx (translateDS x y ds) p
+drawPicture ctx ds (Scale _ x y p)     = drawPicture ctx (scaleDS x y ds) p
+drawPicture ctx ds (Rotate _ r p)      = drawPicture ctx (rotateDS r ds) p
+drawPicture ctx ds (Pictures _ ps)     = mapM_ (drawPicture ctx ds) (reverse ps)
 
 drawFrame :: Canvas.Context -> Picture -> IO ()
 drawFrame ctx pic = do
@@ -640,11 +662,11 @@ drawPicture ds (Text _ sty fnt txt) = withDS ds $ do
     Canvas.font (fontString sty fnt)
     Canvas.fillText (txt, 0, 0)
 drawPicture ds (Logo _)          = return () -- Unimplemented
-drawPicture ds (Color col p)     = drawPicture (setColorDS col ds) p
-drawPicture ds (Translate x y p) = drawPicture (translateDS x y ds) p
-drawPicture ds (Scale x y p)     = drawPicture (scaleDS x y ds) p
-drawPicture ds (Rotate r p)      = drawPicture (rotateDS r ds) p
-drawPicture ds (Pictures ps)     = mapM_ (drawPicture ds) (reverse ps)
+drawPicture ds (Color _ col p)     = drawPicture (setColorDS col ds) p
+drawPicture ds (Translate _ x y p) = drawPicture (translateDS x y ds) p
+drawPicture ds (Scale _ x y p)     = drawPicture (scaleDS x y ds) p
+drawPicture ds (Rotate _ r p)      = drawPicture (rotateDS r ds) p
+drawPicture ds (Pictures _ ps)     = mapM_ (drawPicture ds) (reverse ps)
 
 setupScreenContext :: (Int, Int) -> Canvas ()
 setupScreenContext (cw, ch) = do
