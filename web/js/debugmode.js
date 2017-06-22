@@ -30,6 +30,8 @@ function initDebugMode(getStackAtPoint) {
     infobox.style.display = "none";
     document.body.appendChild(infobox);
 
+    var markers = [];
+
     canvas.addEventListener("click", function (evt) {
         if (!debugMode) return;
 
@@ -39,22 +41,51 @@ function initDebugMode(getStackAtPoint) {
             y: evt.clientY,
         }, ret);
 
-        if (ret.srcLoc) {
-            parent.codeworldEditor.setSelection({
-                line: ret.srcLoc.startLine-1,
-                ch: ret.srcLoc.startCol-1,
+        while (markers.length > 0)
+            markers.pop().clear();
+
+        var stack = ret.stack;
+        for (var pic of stack) {
+            var marker = parent.codeworldEditor.markText({
+                line: pic.srcLoc.startLine-1,
+                ch: pic.srcLoc.startCol-1
             }, {
-                line: ret.srcLoc.endLine-1,
-                ch: ret.srcLoc.endCol-1,
+                line: pic.srcLoc.endLine-1,
+                ch: pic.srcLoc.endCol-1
+            },{
+                className: "marked"
             });
-            
-            var text = ret.srcLoc.startLine + ":" + ret.srcLoc.startCol;
+
+            markers.push(marker);
+        }
+
+        if (stack.length > 0) {
             infobox.innerHTML = "";
-            infobox.appendChild(
-                document.createTextNode(text)
-                );
+
+            for (var i=stack.length-1;i>=0;i--) {
+                var pic = stack[i];
+
+                var link = document.createElement("a");
+                var text = document.createTextNode(
+                        pic.name + "@" + pic.srcLoc.startLine + ":" + stack[i].srcLoc.startCol);
+                var br = document.createElement("br");
+
+                link.href = "#";
+                link.addEventListener("click", (function (pic) {
+                    parent.codeworldEditor.setCursor({
+                        line: pic.srcLoc.startLine-1,
+                        ch: pic.srcLoc.startCol-1
+                    });
+                }).bind(null,pic) );
+
+                link.appendChild(text);
+                infobox.appendChild(link);
+                infobox.appendChild(br);
+            }
+
             infobox.style.left = evt.clientX + "px";
             infobox.style.top  = evt.clientY + "px";
+
             infobox.style.display = "block";
         } else {
             infobox.style.display = "none";

@@ -94,6 +94,7 @@ import           GHCJS.Foreign.Callback
 import           GHCJS.Marshal
 import           GHCJS.Marshal.Pure
 import           GHCJS.Types
+import qualified JavaScript.Array as Array
 import           JavaScript.Object
 import           JavaScript.Web.AnimationFrame
 import qualified JavaScript.Web.Canvas as Canvas
@@ -279,13 +280,9 @@ handlePointRequest :: Picture -> JSVal -> JSVal -> IO ()
 handlePointRequest pic argsJS retJS = do
     x <- fmap pFromJSVal $ getProp "x" args
     y <- fmap pFromJSVal $ getProp "y" args
-    src <- findTopSrc pic (x/25-10,10-y/25)
-    case src of
-        Just (_,srcLoc) -> do
-            srcObj <- srcToObj srcLoc
-            setProp "srcLoc" srcObj ret
-        Nothing -> do
-            setProp "srcLoc" nullRef ret
+    stack <- findTopStack pic (x/25-10,10-y/25)
+    pics <- fmap unsafeCoerce $ picsToArr stack
+    setProp "stack" pics ret
     where
         -- https://github.com/ghcjs/ghcjs-base/issues/53
         args = unsafeCoerce argsJS :: Object
@@ -310,6 +307,18 @@ srcToObj src = do
         startCol  = pToJSVal $ srcLocStartCol src
         endLine   = pToJSVal $ srcLocEndLine src
         endCol    = pToJSVal $ srcLocEndCol src
+
+picToObj :: Picture -> IO JSVal
+picToObj pic = do
+    obj <- create
+    srcLoc <- srcToObj src
+    setProp "srcLoc" srcLoc obj
+    setProp "name"   (pToJSVal name)   obj
+    return $ unsafeCoerce obj
+    where (name,src) = getPictureSrc pic
+
+picsToArr :: [Picture] -> IO Array.JSArray
+picsToArr = fmap Array.fromList . sequence . fmap picToObj 
 
 findCSMain :: CallStack -> (String,SrcLoc)
 findCSMain = go . getCallStack
@@ -344,15 +353,17 @@ flattenPicture ds p@(Rotate _ r pic)      = map ((p,ds):) $ flattenPicture (rota
 flattenPicture ds p@(Pictures _ pics)     = map ((p,ds):) $ pics >>= flattenPicture ds
 flattenPicture ds p = [[(p,ds)]]
 
-findTopSrc :: Picture -> Point -> IO (Maybe (String,SrcLoc))
-findTopSrc pic (x,y) = go $ flattenPicture (translateDS (-x) (-y) initialDS) pic
+findTopStack :: Picture -> Point -> IO [Picture]
+findTopStack pic (x,y) = go $ flattenPicture (translateDS (-x) (-y) initialDS) pic
     where
-        go [] = return Nothing
+        go [] = return []
         go (x:xs) = do
             contained <- containsPoint (snd (last x)) (fst (last x))
             if contained
-                then return $ Just $ getPictureSrc (fst (last x))
+                then return $ filter (not . isPics) $ map fst x
                 else go xs
+        isPics (Pictures _ _) = True
+        isPics _              = False
 
 containsPoint :: DrawState -> Picture -> IO Bool
 containsPoint ds (Color _ _ p) = containsPoint ds p
