@@ -92,6 +92,11 @@ function initDebugMode(getStackAtPoint) {
         }
     });
 
+    window.addEventListener("unload", function () {
+        while (markers.length > 0)
+            markers.pop().clear();
+    });
+
     canvas.onblur = (function (evt) {
         infobox.style.display = "none";
     });
