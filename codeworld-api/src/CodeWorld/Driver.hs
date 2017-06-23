@@ -374,11 +374,27 @@ containsPoint ds (Pictures _ []) = return False
 containsPoint ds (Pictures _ (p:ps)) = do
     contained <- containsPoint ds p
     if contained then return True else containsPoint ds (Pictures emptyCallStack ps)
+containsPoint ds (Text _ sty fnt txt) = do
+    offscreen <- Canvas.create 500 500
+    ctx <- Canvas.getContext offscreen
+    Canvas.font (fontString sty fnt) ctx
+    width <- Canvas.measureText (textToJSString txt) ctx -- height is 25px
+    let (x,y) = transformPoint (inverseDS ds) (0,0)
+    return $ (abs x < width/2) && (abs y < 12.5)
 containsPoint ds pic = do
     offscreen <- Canvas.create 500 500
     ctx <- Canvas.getContext offscreen
     drawPicture ctx ds pic
     js_isPointInPath 0 0 ctx
+
+inverseDS :: DrawState -> DrawState
+inverseDS (ta,tb,tc,td,te,tf,col)
+    | det==0 = (0,0,0,0,0,0,col)
+    | otherwise = (td/det,(-tb)/det,(-tc)/det,ta/det,(tc*tf-td*te)/det,(tb*te-ta*tf)/det,col)
+    where det = ta*td - tb*tc
+
+transformPoint :: DrawState -> Point -> Point
+transformPoint (ta,tb,tc,td,te,tf,_) (x,y) = (te+ta*x+tc*y,tf+tb*x+td*y)
 
 -- Canvas.isPointInPath does not provide a way to get the return value
 -- https://github.com/ghcjs/ghcjs-base/blob/master/JavaScript/Web/Canvas.hs#L212
