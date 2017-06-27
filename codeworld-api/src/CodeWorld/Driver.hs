@@ -53,7 +53,7 @@ import           Control.Exception
 import           Control.Monad
 import           Control.Monad.Trans (liftIO)
 import           Data.Char (chr)
-import           Data.List (zip4)
+import           Data.List (zip4,find)
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.Monoid
 import           Data.Serialize
@@ -280,13 +280,28 @@ handlePointRequest :: Picture -> JSVal -> JSVal -> IO ()
 handlePointRequest pic argsJS retJS = do
     x <- fmap pFromJSVal $ getProp "x" args
     y <- fmap pFromJSVal $ getProp "y" args
-    stack <- findTopStack pic (x/25-10,10-y/25)
-    pics <- fmap unsafeCoerce $ picsToArr stack
+    stack <- findTopStackFromPoint (x,y) pic
+    pics <- case stack of
+        Nothing -> return nullRef
+        Just s  -> fmap unsafeCoerce $ picsToArr s
     setProp "stack" pics ret
     where
         -- https://github.com/ghcjs/ghcjs-base/issues/53
         args = unsafeCoerce argsJS :: Object
         ret  = unsafeCoerce retJS :: Object
+
+picsToArr :: [Picture] -> IO Array.JSArray
+picsToArr = fmap Array.fromList . sequence . fmap picToObj 
+
+picToObj :: Picture -> IO JSVal
+picToObj pic = case getPictureSrc pic of
+        Just (name, src) -> do
+            obj <- create
+            srcLoc <- srcToObj src
+            setProp "srcLoc" srcLoc obj
+            setProp "name"   (pToJSVal name)   obj
+            return $ unsafeCoerce obj
+        Nothing -> return nullRef
 
 srcToObj :: SrcLoc -> IO JSVal
 srcToObj src = do
@@ -308,24 +323,9 @@ srcToObj src = do
         endLine   = pToJSVal $ srcLocEndLine src
         endCol    = pToJSVal $ srcLocEndCol src
 
-picToObj :: Picture -> IO JSVal
-picToObj pic = do
-    obj <- create
-    srcLoc <- srcToObj src
-    setProp "srcLoc" srcLoc obj
-    setProp "name"   (pToJSVal name)   obj
-    return $ unsafeCoerce obj
-    where (name,src) = getPictureSrc pic
 
-picsToArr :: [Picture] -> IO Array.JSArray
-picsToArr = fmap Array.fromList . sequence . fmap picToObj 
-
-findCSMain :: CallStack -> (String,SrcLoc)
-findCSMain = go . getCallStack
-    where go [] = Prelude.error "Unable to find source"
-          go ((name,src):xs)
-            | srcLocPackage src == "main" = (name,src)
-            | otherwise = go xs
+findCSMain :: CallStack -> Maybe (String,SrcLoc)
+findCSMain cs = Data.List.find ((=="main") . srcLocPackage . snd) (getCallStack cs)
 
 getPictureCS :: Picture -> CallStack
 getPictureCS (Polygon cs _ _)     = cs
@@ -338,63 +338,51 @@ getPictureCS (Translate cs _ _ _) = cs
 getPictureCS (Scale cs _ _ _)     = cs
 getPictureCS (Rotate cs _ _)      = cs
 getPictureCS (Pictures cs _)      = cs
+getPictureCS (Logo cs)            = cs
 
-getPictureSrc :: Picture -> (String,SrcLoc)
+getPictureSrc :: Picture -> Maybe (String,SrcLoc)
 getPictureSrc = findCSMain . getPictureCS
 
-type PictureStack = [(Picture,DrawState)]
-
-flattenPicture :: DrawState -> Picture -> [PictureStack]
-flattenPicture ds p@(Color _ col pic)     = map ((p,ds):) $ flattenPicture (setColorDS col ds) pic
-flattenPicture ds p@(Color _ col pic)     = map ((p,ds):) $ flattenPicture (setColorDS col ds) pic
-flattenPicture ds p@(Translate _ x y pic) = map ((p,ds):) $ flattenPicture (translateDS x y ds) pic
-flattenPicture ds p@(Scale _ x y pic)     = map ((p,ds):) $ flattenPicture (scaleDS x y ds) pic
-flattenPicture ds p@(Rotate _ r pic)      = map ((p,ds):) $ flattenPicture (rotateDS r ds) pic
-flattenPicture ds p@(Pictures _ pics)     = map ((p,ds):) $ pics >>= flattenPicture ds
-flattenPicture ds p = [[(p,ds)]]
-
-findTopStack :: Picture -> Point -> IO [Picture]
-findTopStack pic (x,y) = go $ flattenPicture (translateDS (-x) (-y) initialDS) pic
-    where
-        go [] = return []
-        go (x:xs) = do
-            contained <- containsPoint (snd (last x)) (fst (last x))
-            if contained
-                then return $ filter (not . isPics) $ map fst x
-                else go xs
-        isPics (Pictures _ _) = True
-        isPics _              = False
-
-containsPoint :: DrawState -> Picture -> IO Bool
-containsPoint ds (Color _ _ p) = containsPoint ds p
-containsPoint ds (Translate _ x y p) = containsPoint (translateDS x y ds) p
-containsPoint ds (Scale _ x y p) = containsPoint (scaleDS x y ds) p
-containsPoint ds (Rotate _ r p) = containsPoint (rotateDS r ds) p
-containsPoint ds (Pictures _ []) = return False
-containsPoint ds (Pictures _ (p:ps)) = do
-    contained <- containsPoint ds p
-    if contained then return True else containsPoint ds (Pictures emptyCallStack ps)
-containsPoint ds (Text _ sty fnt txt) = do
+findTopStackFromPoint :: Point -> Picture -> IO (Maybe [Picture])
+findTopStackFromPoint (x,y) pic = do
     offscreen <- Canvas.create 500 500
-    ctx <- Canvas.getContext offscreen
-    Canvas.font (fontString sty fnt) ctx
-    width <- Canvas.measureText (textToJSString txt) ctx -- height is 25px
-    let (x,y) = transformPoint (inverseDS ds) (0,0)
-    return $ (abs x < width/2) && (abs y < 12.5)
-containsPoint ds pic = do
-    offscreen <- Canvas.create 500 500
-    ctx <- Canvas.getContext offscreen
-    drawPicture ctx ds pic
-    js_isPointInPath 0 0 ctx
+    context <- Canvas.getContext offscreen
+    findTopStack context (translateDS (10-x/25) (y/25-10) initialDS) pic
 
-inverseDS :: DrawState -> DrawState
-inverseDS (ta,tb,tc,td,te,tf,col)
-    | det==0 = (0,0,0,0,0,0,col)
-    | otherwise = (td/det,(-tb)/det,(-tc)/det,ta/det,(tc*tf-td*te)/det,(tb*te-ta*tf)/det,col)
-    where det = ta*td - tb*tc
-
-transformPoint :: DrawState -> Point -> Point
-transformPoint (ta,tb,tc,td,te,tf,_) (x,y) = (te+ta*x+tc*y,tf+tb*x+td*y)
+findTopStack :: Canvas.Context -> DrawState -> Picture -> IO (Maybe [Picture])
+findTopStack ctx ds pic = case pic of
+    Color _ col p      -> map2 (pic:) $ findTopStack ctx (setColorDS col ds) p
+    Translate _ x y p  -> map2 (pic:) $ findTopStack ctx (translateDS x y ds) p
+    Scale _ x y p      -> map2 (pic:) $ findTopStack ctx (scaleDS x y ds) p
+    Rotate _ r p       -> map2 (pic:) $ findTopStack ctx (rotateDS r ds) p
+    Pictures _ []      -> return Nothing
+    Pictures _ (p:ps)  -> do
+        stack <- findTopStack ctx ds p
+        case stack of
+            Just x  -> return (Just x)
+            Nothing -> findTopStack ctx ds (Pictures undefined ps)
+    Text _ sty fnt txt -> do
+        Canvas.font (fontString sty fnt) ctx
+        width <- Canvas.measureText (textToJSString txt) ctx
+        let height = 25 -- height is constant, defined in fontString
+        withDS ctx ds $ Canvas.rect ((-0.5)*width) (0.5*height) width height ctx
+        contained <- js_isPointInPath 0 0 ctx
+        if contained
+            then return (Just [pic])
+            else return Nothing
+    Logo _             -> do
+        withDS ctx ds $ Canvas.rect (-225) (-50) 450 100 ctx
+        contained <- js_isPointInPath 0 0 ctx
+        if contained
+            then return (Just [pic])
+            else return Nothing
+    _                  -> do
+        drawPicture ctx ds pic
+        contained <- js_isPointInPath 0 0 ctx
+        if contained
+            then return (Just [pic])
+            else return Nothing
+    where map2 = fmap . fmap
 
 -- Canvas.isPointInPath does not provide a way to get the return value
 -- https://github.com/ghcjs/ghcjs-base/blob/master/JavaScript/Web/Canvas.hs#L212

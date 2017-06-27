@@ -45,25 +45,28 @@ function initDebugMode(getStackAtPoint) {
             markers.pop().clear();
 
         var stack = ret.stack;
-        for (var pic of stack) {
-            var marker = parent.codeworldEditor.markText({
-                line: pic.srcLoc.startLine-1,
-                ch: pic.srcLoc.startCol-1
-            }, {
-                line: pic.srcLoc.endLine-1,
-                ch: pic.srcLoc.endCol-1
-            },{
-                className: "marked"
-            });
+        if (stack) {
+            var pic, i, marker;
+            var printable = false;
 
-            markers.push(marker);
-        }
-
-        if (stack.length > 0) {
             infobox.innerHTML = "";
+            for (i=stack.length-1;i>=0;i--) {
+                pic = stack[i];
+                if (!pic)
+                    continue;
 
-            for (var i=stack.length-1;i>=0;i--) {
-                var pic = stack[i];
+                printable = true;
+
+                marker = parent.codeworldEditor.markText({
+                    line: pic.srcLoc.startLine-1,
+                    ch: pic.srcLoc.startCol-1
+                }, {
+                    line: pic.srcLoc.endLine-1,
+                    ch: pic.srcLoc.endCol-1
+                },{
+                    className: "marked"
+                });
+                markers.push(marker);
 
                 var link = document.createElement("a");
                 var text = document.createTextNode(
@@ -83,10 +86,16 @@ function initDebugMode(getStackAtPoint) {
                 infobox.appendChild(br);
             }
 
-            infobox.style.left = evt.clientX + "px";
-            infobox.style.top  = evt.clientY + "px";
+            if (printable) {
+                infobox.style.left = evt.clientX + "px";
+                infobox.style.top  = evt.clientY + "px";
 
-            infobox.style.display = "block";
+                infobox.style.display = "block";
+            } else {
+                // If user clicks on a coordinatePlane, stack may contain
+                // only null
+                infobox.style.display = "none";
+            }
         } else {
             infobox.style.display = "none";
         }
