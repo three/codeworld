@@ -291,7 +291,7 @@ handlePointRequest pic argsJS retJS = do
         ret  = unsafeCoerce retJS :: Object
 
 picsToArr :: [Picture] -> IO Array.JSArray
-picsToArr = fmap Array.fromList . sequence . fmap picToObj 
+picsToArr = fmap Array.fromList . sequence . fmap picToObj
 
 picToObj :: Picture -> IO JSVal
 picToObj pic = case getPictureSrc pic of
