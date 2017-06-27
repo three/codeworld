@@ -184,7 +184,6 @@ rotateDS r (a,b,c,d,e,f,hc) =
      b * cos r + d * sin r,
      c * cos r - a * sin r,
      d * cos r - b * sin r,
-
      e, f, hc)
 
 setColorDS :: Color -> DrawState -> DrawState
@@ -571,6 +570,7 @@ applyColor ds = case getColorDS ds of
       let style = pack $ printf "rgba(%.0f,%.0f,%.0f,%f)" (r*255) (g*255) (b*255) a
       Canvas.strokeStyle style
       Canvas.fillStyle   style
+
 
 drawFigure :: DrawState -> Double -> Canvas () -> Canvas ()
 drawFigure ds w figure = do
