@@ -109,10 +109,12 @@ function initDebugMode(getStackAtPoint) {
     canvas.onblur = (function (evt) {
         infobox.style.display = "none";
     });
-
-    window.debugMode = true;
 }
 
 function haltDebugMode() {
     window.debugMode = false;
+}
+
+function inspect() {
+    window.debugMode = true;
 }

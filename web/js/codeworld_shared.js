@@ -597,3 +597,7 @@ function share() {
 
   go();
 }
+
+function inspect() {
+    document.getElementById('runner').contentWindow.debugMode = true;
+}
