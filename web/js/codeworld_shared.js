@@ -251,50 +251,6 @@ function registerStandardHints(successFunc)
 
 
 function addToMessage(msg) {
-    if (window.buildMode == 'codeworld') {
-        msg = msg
-            .replace(/\u2018/g, '')
-            .replace(/\u2019/g, '')
-            .replace(/ \[-W[a-z-]*\]/g, '')
-            .replace(/IO action main/g, 'variable main')
-            .replace(/module Main/g, 'your program')
-            .replace(/main\:Main/g, 'your program')
-            .replace(/Couldn't match expected type Text\s*with actual type GHC.Types.Char/g,
-                     'Text requires double quotes, rather than single.')
-            .replace(/base-[0-9.]*:GHC\.Stack\.Types\.HasCallStack => /g, '')
-            .replace(/When checking that:\s*[^\n]*\s*is more polymorphic than:\s*[^\n]*(\n\s*)?/g, '')
-            .replace(/\[GHC\.Types\.Char\] -> /g, '')
-            .replace(/base(-[0-9.]*)?\:(.|\n)*?->( |\n)*/g, '')
-            .replace(/integer-gmp(-[0-9\.]*)?:(.|\n)*?->( |\n)*/g, '')
-            .replace(/GHC\.[A-Za-z.]*(\s|\n)*->( |\n)*/g, '')
-            .replace(/at src\/[A-Za-z0-9/.:]* /g, '')
-            .replace(/GHC\.Types\.Char/g, '')
-            .replace(/codeworld-base[-.:_A-Za-z0-9]*/g, 'the standard library')
-            .replace(/Main\./g, '')
-            .replace(/main :: t/g, 'main :: Program')
-            .replace(/Prelude\./g, '')
-            .replace(/\bBool\b/g, 'Truth')
-            .replace(/IO \(\)/g, 'Program')
-            .replace(/IO [a-z][a-zA-Z0-9_]*/g, 'Program')
-            .replace(/[ ]*Perhaps you intended to use TemplateHaskell\n/g, '')
-            .replace(/imported from [^)\n]*/g, 'defined in the standard library')
-            .replace(/\(and originally defined in [^)]*\)/g, '')
-            .replace(/the first argument/g, 'the parameter(s)')
-            .replace(/[ ]*The function [a-zA-Z0-9_]* is applied to [a-z0-9]* arguments,\n/g, '')
-            .replace(/[ ]*but its type .* has only .*\n/g, '')
-            .replace(/A data constructor of that name is in scope; did you mean DataKinds\?/g,
-                'That name refers to a value, not a type.')
-            .replace(/type constructor or class/g, 'type')
-            .replace(/Illegal tuple section: use TupleSections/g,
-                'This tuple is missing a value, or has an extra comma.')
-            .replace(/in string\/character literal/g, 'in text literal')
-            .replace(/lexical error at character '\\822[01]'/g,
-                     'Smart quotes are not allowed.')
-            .replace(/Use -v to see a list of the files searched for\./g, '')
-            .replace(/CallStack \(from HasCallStack\)\:/g, 'When evaluating:')
-            .replace(/\n\s+\n/g, '\n');
-    }
-
     msg = msg
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -336,8 +292,8 @@ function handleGAPILoad() {
             if (auth2.isSignedIn.get() == true) auth2.signIn();
         });
     });
-
-    discoverProjects();
+    
+    discoverProjects("", 0);
     updateUI();
 }
 
@@ -355,9 +311,11 @@ function withClientId(f) {
     });
 }
 
-function discoverProjects_(buildMode) {
+function discoverProjects_(path, buildMode, index) {
     if (!signedIn()) {
-        allProjectNames = window.openProjectName ? [window.openProjectName] : [];
+        allProjectNames = window.openProjectName ? [[window.openProjectName]] : [[]];
+        allFolderNames = [[]];
+        nestedDirs = [""];
         updateUI();
         return;
     }
@@ -365,18 +323,59 @@ function discoverProjects_(buildMode) {
     var data = new FormData();
     data.append('id_token', auth2.currentUser.get().getAuthResponse().id_token);
     data.append('mode', buildMode);
+    data.append('path', path);
 
-    sendHttp('POST', 'listProjects', data, function(request) {
+    sendHttp('POST', 'listFolder', data, function(request) {
         if (request.status != 200) {
             return;
         }
-
-        allProjectNames = JSON.parse(request.responseText);
-        updateUI();
+        var allContents = JSON.parse(request.responseText);
+        allProjectNames[index] = allContents['files'];
+        allFolderNames[index] = allContents['dirs'];
+        updateNavBar();
     });
 }
 
-function warnIfUnsaved(action) {
+function cancelMove() {
+    updateUI();
+}
+
+function moveHere_(path, buildMode, successFunc) {
+    if (!signedIn()) {
+        sweetAlert('Oops!', 'You must sign in before moving.', 'error');
+        cancelMove();
+        return;
+    }
+
+    if (window.move == undefined) {
+        sweetAlert('Oops!', 'You must first select something to move.', 'error');
+        cancelMove();
+        return;
+    }
+
+    var data = new FormData();
+    data.append('id_token', auth2.currentUser.get().getAuthResponse().id_token);
+    data.append('mode', buildMode);
+    data.append('moveTo', path);
+    data.append('moveFrom', window.move.path);
+    if (window.move.file != undefined) {
+        data.append('isFile', "true");
+        data.append('name', window.move.file);
+    } else {
+        data.append('isFile', "false");
+    }
+
+    sendHttp('POST', 'moveProject', data, function(request) {
+        if (request.status != 200) {
+            sweetAlert('Oops', 'Could not move your project! Please try again.', 'error');
+            cancelMove();
+            return;
+        }
+        successFunc();
+    });
+}
+
+function warnIfUnsaved(action, showAnother) {
     if (isEditorClean()) {
         action();
     } else {
@@ -387,7 +386,8 @@ function warnIfUnsaved(action) {
             type: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#DD6B55',
-            confirmButtonText: 'Yes, discard my changes!'
+            confirmButtonText: 'Yes, discard my changes!',
+            closeOnConfirm: !showAnother
         }, action);
     }
 }
@@ -409,6 +409,10 @@ function saveProjectAs() {
         defaultName = '';
     }
 
+    function go(projectName) {
+        saveProjectBase(nestedDirs.slice(1).join('/'), projectName);
+    }
+
     sweetAlert({
         html: true,
         title: '<i class="mdi mdi-72px mdi-cloud-upload"></i>&nbsp; Save As',
@@ -418,7 +422,7 @@ function saveProjectAs() {
         confirmButtonText: 'Save',
         showCancelButton: true,
         closeOnConfirm: false
-    }, saveProjectBase);
+    }, go);
 }
 
 function saveProject() {
@@ -429,16 +433,16 @@ function saveProject() {
     }
 
     if (window.openProjectName) {
-        saveProjectBase(openProjectName);
+        saveProjectBase(nestedDirs.slice(1).join('/'), openProjectName);
     } else {
         saveProjectAs();
     }
 }
 
-function saveProjectBase_(projectName, mode, successFunc) {
+function saveProjectBase_(path, projectName, mode, successFunc) {
     if (projectName == null || projectName == '') return;
 
-    if (!signedIn) {
+    if (!signedIn()) {
         sweetAlert('Oops!', 'You must sign in to save files.', 'error');
         updateUI();
         return;
@@ -453,6 +457,7 @@ function saveProjectBase_(projectName, mode, successFunc) {
         data.append('id_token', auth2.currentUser.get().getAuthResponse().id_token);
         data.append('project', JSON.stringify(project));
         data.append('mode', mode);
+        data.append('path', path);
 
         sendHttp('POST', 'saveProject', data, function(request) {
             if (request.status != 200) {
@@ -464,13 +469,13 @@ function saveProjectBase_(projectName, mode, successFunc) {
 
             updateUI();
 
-            if (allProjectNames.indexOf(projectName) == -1) {
-                discoverProjects();
+            if (allProjectNames[allProjectNames.length - 1].indexOf(projectName) == -1) {
+                discoverProjects(path, allProjectNames.length - 1);
             }
         });
     }
 
-    if (allProjectNames.indexOf(projectName) == -1 || projectName == openProjectName) {
+    if (allProjectNames[allProjectNames.length - 1].indexOf(projectName) == -1 || projectName == openProjectName) {
         go();
     } else {
         var msg = 'Are you sure you want to save over another project?\n\n' +
@@ -486,10 +491,10 @@ function saveProjectBase_(projectName, mode, successFunc) {
     }
 }
 
-function deleteProject_(buildMode, successFunc) {
+function deleteProject_(path, buildMode, successFunc) {
     if (!window.openProjectName) return;
 
-    if (!signedIn) {
+    if (!signedIn()) {
         sweetAlert('Oops', 'You must sign in to delete a project.', 'error');
         updateUI();
         return;
@@ -500,14 +505,13 @@ function deleteProject_(buildMode, successFunc) {
         data.append('id_token', auth2.currentUser.get().getAuthResponse().id_token);
         data.append('name', window.openProjectName);
         data.append('mode', buildMode);
+        data.append('path', path);
 
         sendHttp('POST', 'deleteProject', data, function(request) {
             if (request.status == 200) {
                 successFunc();
+                discoverProjects(path, allProjectNames.length - 1);
             }
-
-            discoverProjects();
-            updateUI();
         });
     }
 
@@ -522,7 +526,92 @@ function deleteProject_(buildMode, successFunc) {
     }, go);
 }
 
-function loadProject_(name, buildMode, successFunc) {
+function deleteFolder_(path, buildMode, successFunc) {
+    if(path == "" || window.openProjectName != null) {
+        return;
+    }
+    if(!signedIn()) {
+        sweetAlert('Oops', 'You must sign in to delete a folder.', 'error');
+        updateUI();
+        return;
+    }
+
+    function go() {
+        var data = new FormData();
+        data.append('id_token', auth2.currentUser.get().getAuthResponse().id_token);
+        data.append('mode', buildMode);
+        data.append('path', path);
+
+        sendHttp('POST', 'deleteFolder', data, function(request) {
+            if (request.status == 200) {
+                successFunc();
+                nestedDirs.pop();
+                allProjectNames.pop();
+                allFolderNames.pop();
+                discoverProjects(nestedDirs.slice(1).join('/'), allProjectNames.length - 1);
+            }
+        });
+    }
+
+    var msg = 'Deleting a folder will throw away all of its content, cannot be undone. ' + 'Are you sure?';
+    sweetAlert({
+        title: 'Warning',
+        text: msg,
+        type: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#DD6B55',
+        confirmButtonText: 'Yes, delete it!'
+    }, go);
+}
+
+function createFolder(path, buildMode, successFunc) {
+    warnIfUnsaved(function() {
+        if(!signedIn()) {
+            sweetAlert('Oops!', 'You must sign in to create a folder.', 'error');
+            updateUI();
+            return;
+        }
+
+        function go(folderName) {
+            if(folderName == null || folderName == '') {
+                return;
+            }
+
+            sweetAlert.close();
+            var data = new FormData();
+            data.append('id_token', auth2.currentUser.get().getAuthResponse().id_token);
+            data.append('mode', buildMode);
+            if (path == "")
+                data.append('path', folderName);
+            else
+                data.append('path', path + '/' + folderName);
+
+            sendHttp('POST', 'createFolder', data, function(request) {
+                if (request.status != 200) {
+                    sweetAlert('Oops', 'Could not create your directory! Please try again.', 'error');
+                    return;
+                }
+
+                allFolderNames[allFolderNames.length - 1].push(folderName);
+                successFunc();
+                updateNavBar();
+            });
+        }
+
+        sweetAlert({
+            html: true,
+            title: '<i class="mdi mdi72px mdi-folder-plus"></i>&nbsp; Create Folder',
+            text: 'Enter a name for your folder:',
+            type: 'input',
+            inputValue: '',
+            confirmButtonText: 'Create',
+            showCancelButton: true,
+            closeOnConfirm: false
+        }, go);
+    }, true);
+}
+
+function loadProject_(index, name, buildMode, successFunc) {
     
   warnIfUnsaved(function(){
     if (!signedIn()) {
@@ -535,15 +624,20 @@ function loadProject_(name, buildMode, successFunc) {
     data.append('id_token', auth2.currentUser.get().getAuthResponse().id_token);
     data.append('name', name);
     data.append('mode', buildMode);
+    data.append('path', nestedDirs.slice(1, index + 1).join('/'));
 
     sendHttp('POST', 'loadProject', data, function(request) {
         if (request.status == 200) {
             var project = JSON.parse(request.responseText);
 
             successFunc(project);
+            window.nestedDirs = nestedDirs.slice(0, index + 1);
+            window.allProjectNames = allProjectNames.slice(0, index + 1);
+            window.allFolderNames = allFolderNames.slice(0, index + 1);
+            updateUI();
         }
     });
-  });
+  }, false);
 }
 
 function share() {
@@ -605,4 +699,54 @@ function inspect() {
         sweetAlert('Sorry!','Inspect is only available in drawingOf.','error');
     }
     updateUI();
+}
+
+function shareFolder_(mode) {
+    if(!signedIn()) {
+        sweetAlert('Oops!', 'You must sign in to share your folder.', 'error');
+        updateUI();
+        return;
+    }
+    if(nestedDirs.length == 1 || (openProjectName != null && openProjectName != '')) {
+        sweetAlert('Oops!', 'YOu must select a folder to share!', 'error');
+        updateUI();
+        return;
+    }
+    var path = nestedDirs.slice(1).join('/');
+
+    function go() {
+        var msg = 'Copy this link to share your folder with others!';
+
+        var id_token = auth2.currentUser.get().getAuthResponse().id_token;
+        var data = new FormData();
+        data.append('id_token', id_token);
+        data.append('mode', mode);
+        data.append('path', path);
+ 
+        sendHttp('POST', 'shareFolder', data, function(request) {
+            if(request.status != 200) {
+                sweetAlert('Oops!', 'Could not share your folder! Please try again.', 'error');
+                return;
+            }
+
+            var shareHash = request.responseText;
+            var a = document.createElement('a');
+            a.href = window.location.href;
+            a.hash = '#' + shareHash;
+            var url = a.href;
+            sweetAlert({
+                html: true,
+                title: '<i class="mdi mdi-72px mdi-folder-outline"></i>&nbsp; Share Folder',
+                text: msg,
+                type: 'input',
+                inputValue: url,
+                showConfirmButton: false,
+                showCancelButton: true,
+                cancelButtonText: 'Done',
+                animation: 'slide-from-bottom'
+            });
+        });
+    }
+
+    go();
 }

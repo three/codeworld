@@ -24,6 +24,12 @@ import GHC.Stack
 type Point = (Double, Double)
 type Vector = (Double, Double)
 
+vectorLength :: Vector -> Double
+vectorLength (x,y) = sqrt (x^2 + y^2)
+
+vectorDirection :: Vector -> Double
+vectorDirection (x,y) = atan2 y x
+
 vectorSum :: Vector -> Vector -> Vector
 vectorSum (x1,y1) (x2,y2) = (x1 + x2, y1 + y2)
 
@@ -176,8 +182,8 @@ scaled :: HasCallStack => Double -> Double -> Picture -> Picture
 scaled = Scale callStack
 
 -- | A picture scaled by these factors.
-dilated :: HasCallStack => Double -> Double -> Picture -> Picture
-dilated = scaled
+dilated :: HasCallStack => Double -> Picture -> Picture
+dilated k = scaled k k
 
 -- | A picture rotated by this angle.
 --

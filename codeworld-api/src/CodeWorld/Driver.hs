@@ -1,11 +1,9 @@
 {-# LANGUAGE CPP                      #-}
-{-# LANGUAGE DefaultSignatures        #-}
 {-# LANGUAGE DeriveGeneric            #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GADTs                    #-}
 {-# LANGUAGE JavaScriptFFI            #-}
 {-# LANGUAGE KindSignatures           #-}
-{-# LANGUAGE LambdaCase               #-}
 {-# LANGUAGE MultiWayIf               #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE PatternGuards            #-}
@@ -651,16 +649,15 @@ drawPicture ds (Polygon _ ps smooth) = do
     withDS ds $ followPath ps True smooth
     applyColor ds
     Canvas.fill ()
-drawPicture ds (Path _ ps w closed smooth) = do
+drawPicture ds (Path _ ps w closed smooth) =
     drawFigure ds w $ followPath ps closed smooth
 drawPicture ds (Sector _ b e r) = withDS ds $ do
     Canvas.arc (0, 0, 25 * abs r, b, e,  b > e)
     Canvas.lineTo (0, 0)
     applyColor ds
     Canvas.fill ()
-drawPicture ds (Arc _ b e r w) = do
-    drawFigure ds w $ do
-        Canvas.arc (0, 0, 25 * abs r, b, e, b > e)
+drawPicture ds (Arc _ b e r w) =
+    drawFigure ds w $ Canvas.arc (0, 0, 25 * abs r, b, e, b > e)
 drawPicture ds (Text _ sty fnt txt) = withDS ds $ do
     Canvas.scale (1, -1)
     applyColor ds
@@ -784,7 +781,7 @@ keyCodeToText n = case n of
 isUniversallyConstant :: (a -> s -> s) -> s -> IO Bool
 isUniversallyConstant f old = falseOr $ do
     oldName <- makeStableName old
-    genName <- makeStableName $! (f undefined old)
+    genName <- makeStableName $! f undefined old
     return (genName == oldName)
   where falseOr x = x `catch` \(e :: SomeException) -> return False
 
@@ -1205,9 +1202,7 @@ toEvent rect Canvas.Event {..}
 onEvents :: Canvas.DeviceContext -> (Int, Int) -> (Event -> IO ()) -> IO ()
 onEvents context rect handler = void $ forkIO $ forever $ do
     maybeEvent <- toEvent rect <$> Canvas.wait context
-    case maybeEvent of
-        Nothing -> return ()
-        Just event -> handler event
+    forM_ maybeEvent handler
 
 run :: s -> (Double -> s -> s) -> (Event -> s -> s) -> (s -> Picture) -> IO ()
 run initial stepHandler eventHandler drawHandler = runBlankCanvas $ \context -> do
@@ -1225,18 +1220,17 @@ run initial stepHandler eventHandler drawHandler = runBlankCanvas $ \context -> 
     let go t0 lastFrame lastStateName needsTime = do
             pic <- drawHandler <$> readMVar currentState
             picFrame <- makeStableName $! pic
-            when (picFrame /= lastFrame) $ do
-                Canvas.send context $ do
-                    Canvas.with offscreenCanvas $
-                        Canvas.saveRestore $ do
-                            setupScreenContext rect
-                            drawPicture initialDS pic
-                    Canvas.drawImageAt (offscreenCanvas, 0, 0)
+            when (picFrame /= lastFrame) $ Canvas.send context $ do
+                Canvas.with offscreenCanvas $
+                    Canvas.saveRestore $ do
+                        setupScreenContext rect
+                        drawPicture initialDS pic
+                Canvas.drawImageAt (offscreenCanvas, 0, 0)
 
             t1 <- if
               | needsTime -> do
                   tn <- getCurrentTime
-                  threadDelay $ max 0 (50000 - (round ((tn `diffUTCTime` t0) * 1000000)))
+                  threadDelay $ max 0 (50000 - round ((tn `diffUTCTime` t0) * 1000000))
                   t1 <- getCurrentTime
                   let dt = realToFrac (t1 `diffUTCTime` t0)
                   modifyMVar_ currentState (return . stepHandler dt)
@@ -1381,7 +1375,7 @@ drawControl _ alpha PlayButton = translated (-8) (-9) p
 drawControl _ alpha PauseButton = translated (-8) (-9) p
   where p = colored (RGBA 0   0   0   alpha)
                     (translated (-0.15) 0 (solidRectangle 0.2 0.6) <>
-                     translated ( 0.15) 0 (solidRectangle 0.2 0.6))
+                     translated   0.15  0 (solidRectangle 0.2 0.6))
          <> colored (RGBA 0.2 0.2 0.2 alpha) (rectangle      0.8 0.8)
          <> colored (RGBA 0.8 0.8 0.8 alpha) (solidRectangle 0.8 0.8)
 
@@ -1399,7 +1393,7 @@ drawControl _ alpha StepButton = translated (-6) (-9) p
          <> colored (RGBA 0.2 0.2 0.2 alpha) (rectangle      0.8 0.8)
          <> colored (RGBA 0.8 0.8 0.8 alpha) (solidRectangle 0.8 0.8)
 
-drawControl w alpha TimeLabel = translated (8) (-9) p
+drawControl w alpha TimeLabel = translated 8 (-9) p
   where p = colored (RGBA 0   0   0   alpha)
                     (scaled 0.5 0.5 $
                         text (pack (showFFloatAlt (Just 4) (state w) "s")))
@@ -1471,6 +1465,6 @@ getDeployHash = pFromJSVal <$> js_deployHash
 trace = Debug.Trace.trace . T.unpack
 
 reportError :: SomeException -> IO ()
-reportError e = hPrint stderr e
+reportError = hPrint stderr
 
 #endif

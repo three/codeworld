@@ -36,6 +36,12 @@ toCWVect (x, y) = (toDouble x, toDouble y)
 fromCWVect :: CW.Vector -> Vector
 fromCWVect (x, y) = (fromDouble x, fromDouble y)
 
+vectorLength :: Vector -> Number
+vectorLength v = fromDouble (CW.vectorLength (toCWVect v))
+
+vectorDirection :: Vector -> Number
+vectorDirection v = 180 / pi * fromDouble (CW.vectorDirection (toCWVect v))
+
 vectorSum :: (Vector, Vector) -> Vector
 vectorSum (v, w) = fromCWVect (CW.vectorSum (toCWVect v) (toCWVect w))
 
@@ -179,8 +185,8 @@ scaled :: HasCallStack => (Picture, Number, Number) -> Picture
 scaled (p, x, y) = CWPic (CW.scaled (toDouble x) (toDouble y) (toCWPic p))
 
 -- | A picture scaled by these factors.
-dilated :: HasCallStack => (Picture, Number, Number) -> Picture
-dilated = scaled
+dilated :: HasCallStack => (Picture, Number) -> Picture
+dilated (p, k) = CWPic (CW.dilated (toDouble k) (toCWPic p))
 
 -- | A picture rotated by this angle.
 rotated :: HasCallStack => (Picture, Number) -> Picture

@@ -402,6 +402,8 @@ atan = fromRadians . fromDouble . P.atan . toDouble
 atan2 :: (Number, Number) -> Number
 atan2 (Number a, Number b) = fromRadians (fromDouble (P.atan2 a b))
 
+{-# WARNING atan2 "Please use vectorDirection instead of atan2." #-}
+
 {-| Gives the inverse cosine of a value, in degrees.
 
   This is the unique angle between 0 and 180 that has the input as its cosine.
@@ -409,7 +411,7 @@ atan2 (Number a, Number b) = fromRadians (fromDouble (P.atan2 a b))
 acos :: HasCallStack => Number -> Number
 acos (Number x)
   | x P.< -1 P.|| x P.> 1 = withFrozenCallStack
-      (P.error "The asin function is only defined for numbers from -1 to 1.")
+      (P.error "The acos function is only defined for numbers from -1 to 1.")
   | otherwise = fromRadians (fromDouble (P.acos x))
 
 {-| Separates a number into its whole and fractional parts.

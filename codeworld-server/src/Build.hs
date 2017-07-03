@@ -29,6 +29,7 @@ import           System.IO.Temp (withSystemTempDirectory)
 import           System.Process
 import           Text.Regex.TDFA
 
+import ErrorSanitizer
 import Util
 
 compileIfNeeded :: BuildMode -> ProgramId -> IO Bool
@@ -40,7 +41,7 @@ compileIfNeeded mode programId = do
 compileExistingSource :: BuildMode -> ProgramId -> IO Bool
 compileExistingSource mode programId = checkDangerousSource mode programId >>= \case
     True -> do
-        B.writeFile (buildRootDir mode </> resultFile programId) $
+        B.writeFile (buildRootDir mode </> resultFile programId)
             "Sorry, but your program refers to forbidden language features."
         return False
     False -> withSystemTempDirectory "codeworld" $ \tmpdir -> do
@@ -49,19 +50,21 @@ compileExistingSource mode programId = checkDangerousSource mode programId >>= \
                 BuildMode "haskell"   -> haskellCompatibleBuildArgs
                 _                     -> standardBuildArgs
             ghcjsArgs = baseArgs ++ [ "program.hs" ]
-        success <- runCompiler tmpdir userCompileMicros ghcjsArgs >>= \case
+        runCompiler tmpdir userCompileMicros ghcjsArgs >>= \case
             Nothing -> return False
             Just output -> do
-                B.writeFile (buildRootDir mode </> resultFile programId) output
+                let filteredOutput = case mode of 
+                        BuildMode "haskell"   -> output
+                        _                     -> filterOutput output
+                B.writeFile (buildRootDir mode </> resultFile programId) filteredOutput
                 let target = tmpdir </> "program.jsexe" </> "all.js"
                 hasTarget <- doesFileExist target
                 when hasTarget $
                     copyFile target (buildRootDir mode </> targetFile programId)
                 return hasTarget
-        return success
 
 userCompileMicros :: Int
-userCompileMicros = 15 * 1000000
+userCompileMicros = 45 * 1000000
 
 checkDangerousSource :: BuildMode -> ProgramId -> IO Bool
 checkDangerousSource mode programId = do
@@ -84,9 +87,7 @@ runCompiler dir micros args = do
             close_fds = True }
 
     hClose inh
-    result <- withTimeout micros $ do
-        err <- B.hGetContents errh
-        return err
+    result <- withTimeout micros (B.hGetContents errh)
     hClose outh
 
     terminateProcess pid
