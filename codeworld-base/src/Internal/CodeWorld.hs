@@ -28,7 +28,6 @@ module Internal.CodeWorld (
     simulationOf,
     interactionOf,
     collaborationOf,
-    debugMode,
     traced
     ) where
 
@@ -47,9 +46,6 @@ traced :: (a, CWT.Text) -> a
 traced (x, msg) = CW.trace (CWT.fromCWText msg) x
 
 type Program = IO ()
-
-debugMode :: Picture -> Program
-debugMode pic = CW.debugMode $ toCWPic pic
 
 drawingOf :: Picture -> Program
 drawingOf pic = CW.drawingOf (toCWPic pic)

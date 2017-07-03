@@ -165,6 +165,13 @@ function updateUI() {
         document.getElementById('deleteButton').style.display = 'none';
     }
 
+    var debugMode = document.getElementById('runner').contentWindow.debugMode;
+    if (debugMode) {
+        document.getElementById('inspectButton').style.color = 'black';
+    } else {
+        document.getElementById('inspectButton').style.color = '';
+    }
+
     var projects = document.getElementById('nav_mine');
     var newProject = document.getElementById('newButton');
 

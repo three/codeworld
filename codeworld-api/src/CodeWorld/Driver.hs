@@ -37,7 +37,6 @@ module CodeWorld.Driver (
     interactionOf,
     collaborationOf,
     unsafeCollaborationOf,
-    debugMode,
     trace
     ) where
 
@@ -264,16 +263,12 @@ drawCodeWorldLogo ctx ds x y w h = do
 
 -- Debug Mode logic
 
-debugMode :: Picture -> IO ()
-debugMode pic = do
-    display pic `catch` reportErrorDebugMode
+-- | Register callback with initDebugMode allowing users to
+-- | inspect picture.
+inspect :: Picture -> IO ()
+inspect pic = do
     callback <- syncCallback2 ContinueAsync (handlePointRequest pic)
     js_initDebugMode callback
-
-reportErrorDebugMode :: SomeException -> IO ()
-reportErrorDebugMode e = do
-    reportError e
-    js_haltDebugMode
 
 handlePointRequest :: Picture -> JSVal -> JSVal -> IO ()
 handlePointRequest pic argsJS retJS = do
@@ -390,10 +385,6 @@ foreign import javascript unsafe "$3.isPointInPath($1,$2)"
 
 foreign import javascript unsafe "initDebugMode($1)"
     js_initDebugMode :: Callback (JSVal -> JSVal -> IO ()) -> IO ()
-
-foreign import javascript unsafe "haltDebugMode()"
-    js_haltDebugMode :: IO ()
-
 
 followPath :: Canvas.Context -> [Point] -> Bool -> Bool -> IO ()
 followPath ctx [] closed _ = return ()
@@ -546,7 +537,9 @@ display pic = do
         drawFrame ctx pic
         Canvas.restore ctx
 
-drawingOf pic = display pic `catch` reportError
+drawingOf pic = do
+    display pic `catch` reportError
+    inspect pic
 
 
 --------------------------------------------------------------------------------
@@ -584,9 +577,6 @@ drawFigure ds w figure = do
         Canvas.lineWidth 1
         applyColor ds
         Canvas.stroke ()
-
-debugMode :: Picture -> IO ()
-debugMode _ = error "Debug mode is not available outside GHCJS"
 
 followPath :: [Point] -> Bool -> Bool -> Canvas ()
 followPath [] closed _ = return ()

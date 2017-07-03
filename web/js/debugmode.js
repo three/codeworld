@@ -17,20 +17,22 @@
 "use strict";
 
 window.debugMode = false;
+window.debugMarkers = [];
+
+window.infobox = null;
 
 function initDebugMode(getStackAtPoint) {
     var canvas = document.getElementById("screen");
-    var infobox = document.createElement("div");
 
+    infobox = document.createElement("div");
     infobox.style.position = "absolute";
     infobox.style.border = "1px solid black";
     infobox.style.background = "white";
     infobox.style.minWidth = "60px";
     infobox.style.padding = "10px";
     infobox.style.display = "none";
+    infobox.id = "infobox";
     document.body.appendChild(infobox);
-
-    var markers = [];
 
     canvas.addEventListener("click", function (evt) {
         if (!debugMode) return;
@@ -41,8 +43,7 @@ function initDebugMode(getStackAtPoint) {
             y: evt.clientY,
         }, ret);
 
-        while (markers.length > 0)
-            markers.pop().clear();
+        clearMarkers();
 
         var stack = ret.stack;
         if (stack) {
@@ -66,7 +67,7 @@ function initDebugMode(getStackAtPoint) {
                 },{
                     className: "marked"
                 });
-                markers.push(marker);
+                debugMarkers.push(marker);
 
                 var link = document.createElement("a");
                 var text = document.createTextNode(
@@ -102,8 +103,7 @@ function initDebugMode(getStackAtPoint) {
     });
 
     window.addEventListener("unload", function () {
-        while (markers.length > 0)
-            markers.pop().clear();
+        clearMarkers();
     });
 
     canvas.onblur = (function (evt) {
@@ -111,10 +111,31 @@ function initDebugMode(getStackAtPoint) {
     });
 }
 
-function haltDebugMode() {
-    window.debugMode = false;
+function clearMarkers() {
+    while (debugMarkers.length > 0) {
+        debugMarkers.pop().clear();
+    }
 }
 
-function inspect() {
+function startDebugMode() {
+    if (!infobox) {
+        throw new Error("Can't start debugMode: isPointInPath not registered via initDebugMode!");
+    }
     window.debugMode = true;
+}
+
+function stopDebugMode() {
+    if (infobox) {
+        infobox.style.display = "none";
+    }
+    window.debugMode = false;
+    clearMarkers();
+}
+
+function toggleDebugMode() {
+    if (window.debugMode) {
+        stopDebugMode();
+    } else {
+        startDebugMode();
+    }
 }

@@ -67,7 +67,6 @@ module CodeWorld (
     scaledVector,
     rotatedVector,
     dotProduct,
-    debugMode,
 
     -- * Colors
     Color(..),
