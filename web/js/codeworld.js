@@ -547,7 +547,7 @@ function newProject() {
 }
 
 function newFolder() {
-    function successFunc() {document.getElementById('runner').contentWindow.debugMode
+    function successFunc() {
         if (window.move == undefined)
             setCode('');
     }
