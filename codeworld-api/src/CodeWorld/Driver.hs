@@ -164,15 +164,9 @@ trace :: Text -> a -> a
 -- for drawing. A drawing does not contain unnecessary metadata like CallStacks.
 -- The drawer is specific to the platform.
 
-data Drawing = Shape Drawer
-             | Transformation (DrawState -> DrawState) Drawing
-             | Drawings [Drawing]
-
-instance Monoid Drawing where
-    mempty                  = Drawings []
-    mappend a (Drawings bs) = Drawings (a:bs)
-    mappend a b             = Drawings [a,b]
-    mconcat                 = Drawings
+data Drawing = Shape NodeId Drawer
+             | Transformation NodeId (DrawState -> DrawState) Drawing
+             | Drawings NodeId [Drawing]
 
 -- A DrawState is an affine transformation matrix, plus a Bool indicating whether
 -- a color has been chosen yet.
@@ -184,17 +178,34 @@ type DrawState = (Double, Double, Double, Double, Double, Double, Maybe Color)
 type NodeId = Int
 
 pictureToDrawing :: Picture -> Drawing
-pictureToDrawing (Polygon _ pts s)    = Shape $ polygonDrawer pts s
-pictureToDrawing (Path _ pts w c s)   = Shape $ pathDrawer pts w c s
-pictureToDrawing (Sector _ b e r)     = Shape $ sectorDrawer b e r
-pictureToDrawing (Arc _ b e r w)      = Shape $ arcDrawer b e r w
-pictureToDrawing (Text _ sty fnt txt) = Shape $ textDrawer sty fnt txt
-pictureToDrawing (Logo  _)            = Shape $ logoDrawer
-pictureToDrawing (Color _ col p)      = Transformation (setColorDS col) $ pictureToDrawing p
-pictureToDrawing (Translate _ x y p)  = Transformation (translateDS x y) $ pictureToDrawing p
-pictureToDrawing (Scale _ x y p)      = Transformation (scaleDS x y) $ pictureToDrawing p
-pictureToDrawing (Rotate _ r p)       = Transformation (rotateDS r) $ pictureToDrawing p
-pictureToDrawing (Pictures _ ps)      = Drawings $ pictureToDrawing <$> ps
+pictureToDrawing = fst . flip State.runState 0 . pictureToDrawing'
+
+pictureToDrawing' :: Picture -> State.State NodeId Drawing
+pictureToDrawing' pic = case pic of
+    Polygon _ pts s    -> mkShape $ polygonDrawer pts s
+    Path _ pts w c s   -> mkShape $ pathDrawer pts w c s
+    Sector _ b e r     -> mkShape $ sectorDrawer b e r
+    Arc _ b e r w      -> mkShape $ arcDrawer b e r w
+    Text _ sty fnt txt -> mkShape $ textDrawer sty fnt txt
+    Logo _             -> mkShape $ logoDrawer
+    Color _ col p      -> mkTrans p $ setColorDS col
+    Translate _ x y p  -> mkTrans p $ translateDS x y
+    Scale _ x y p      -> mkTrans p $ scaleDS x y
+    Rotate _ r p       -> mkTrans p $ rotateDS r
+    Pictures _ ps -> do
+        id <- nextId
+        drs <- mapM pictureToDrawing' ps
+        return $ Drawings id drs
+    where
+        nextId = do
+            id <- State.get
+            State.put (id+1)
+            return id
+        mkShape drawer = fmap (\id -> Shape id drawer) nextId
+        mkTrans p trans = do
+            id <- nextId
+            dr <- pictureToDrawing' p
+            return $ Transformation id trans dr
 
 initialDS :: DrawState
 initialDS = (1, 0, 0, 1, 0, 0, Nothing)
@@ -478,19 +489,19 @@ findTopShapeFromPoint (x,y) pic = do
         False -> return Nothing
 
 findTopShape :: Canvas.Context -> DrawState -> Drawing -> IO (Bool,Int)
-findTopShape ctx ds (Shape drawer) = do
+findTopShape ctx ds (Shape _ drawer) = do
     contained <- shapeContains $ drawer ctx ds
     case contained of
         True  -> return (True,0)
         False -> return (False,1)
-findTopShape ctx ds (Transformation f d) =
+findTopShape ctx ds (Transformation _ f d) =
     map2 (+1) $ findTopShape ctx (f ds) d
-findTopShape ctx ds (Drawings []) = return (False,1)
-findTopShape ctx ds (Drawings (dr:drs)) = do
+findTopShape ctx ds (Drawings _ []) = return (False,1)
+findTopShape ctx ds (Drawings n (dr:drs)) = do
     (found, count) <- findTopShape ctx ds dr
     case found of
         True  -> return (True,count+1)
-        False -> map2 (+count) $ findTopShape ctx ds (Drawings drs)
+        False -> map2 (+count) $ findTopShape ctx ds (Drawings n drs)
 
 map2 :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
 map2 = fmap . fmap
@@ -682,9 +693,9 @@ fontString style font = stylePrefix style <> "25px " <> fontName font
         fontName (NamedFont txt) = "\"" <> textToJSString (T.filter (/= '"') txt) <> "\""
 
 drawDrawing :: Canvas.Context -> DrawState -> Drawing -> IO ()
-drawDrawing ctx ds (Shape shape) = drawShape $ shape ctx ds
-drawDrawing ctx ds (Transformation f d) = drawDrawing ctx (f ds) d
-drawDrawing ctx ds (Drawings drs) = mapM_ (drawDrawing ctx ds) (reverse drs)
+drawDrawing ctx ds (Shape _ shape) = drawShape $ shape ctx ds
+drawDrawing ctx ds (Transformation _ f d) = drawDrawing ctx (f ds) d
+drawDrawing ctx ds (Drawings _ drs) = mapM_ (drawDrawing ctx ds) (reverse drs)
 
 drawFrame :: Canvas.Context -> Drawing -> IO ()
 drawFrame ctx drawing = do
